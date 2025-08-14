@@ -43,7 +43,6 @@ init_manager() {
     if [ ! -d "$MANAGER_DIR" ]; then
         mkdir -p "$MANAGER_DIR"
         echo "[]" > "$PROFILES_FILE"
-        print_status "Создана директория управления: $MANAGER_DIR"
     fi
 
     # Всегда обеспечиваем правильную работу команды socks
@@ -78,9 +77,7 @@ setup_socks_command() {
     chmod +x "$link_path"
 
     # Проверка результата
-    if [ -x "$link_path" ]; then
-        print_success "Команда 'socks' создана и готова к использованию"
-    else
+    if [ ! -x "$link_path" ]; then
         print_warning "Не удалось создать команду 'socks'"
     fi
 }
@@ -561,8 +558,7 @@ main() {
 
     # Инициализация при первом запуске
     if [ ! -d "$MANAGER_DIR" ]; then
-        print_header "ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА SOCKS5 МЕНЕДЖЕРА"
-
+        print_status "Установка SOCKS5 MANAGER"
         install_dependencies
         init_manager
         generate_dante_config
