@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SOCKS5 Proxy Manager - Enhanced Version
+# SOCKS5 Proxy Manager - Enhanced Version Based on Working Script
 # Управление множественными SOCKS5 прокси-серверами
 
 # Цвета для вывода
@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 MANAGER_DIR="/etc/socks5-manager"
 PROFILES_FILE="$MANAGER_DIR/profiles.json"
 SCRIPT_PATH="/usr/local/bin/socks"
+DANTE_CONFIG="/etc/danted.conf"
 
 # Функции для цветного вывода
 print_status() {
@@ -55,16 +56,10 @@ init_manager() {
     fi
 }
 
-# Проверка и установка зависимостей
+# Проверка и установка зависимостей (ТОЧНО КАК В ИСХОДНОМ СКРИПТЕ)
 install_dependencies() {
-    print_status "Проверка и установка зависимостей..."
-    
-    if ! command -v jq &> /dev/null; then
-        apt update > /dev/null 2>&1
-        apt install -y jq > /dev/null 2>&1
-    fi
-    
-    apt install -y dante-server apache2-utils > /dev/null 2>&1
+    print_status "Обновление пакетов и установка зависимостей..."
+    apt update > /dev/null 2>&1 && apt install -y dante-server apache2-utils jq > /dev/null 2>&1
     
     if [ $? -ne 0 ]; then
         print_error "Ошибка при установке пакетов"
@@ -72,7 +67,7 @@ install_dependencies() {
     fi
 }
 
-# Функция для генерации случайного порта
+# Функция для генерации случайного порта (ИЗ ИСХОДНОГО СКРИПТА)
 generate_random_port() {
     while :; do
         port=$((RANDOM % 64512 + 1024))
@@ -113,7 +108,45 @@ get_next_profile_number() {
     echo $((max_num + 1))
 }
 
-# Создание нового профиля (исправленная версия)
+# Генерация конфигурации Dante для всех профилей
+generate_dante_config() {
+    local INTERFACE=$(ip route get 8.8.8.8 | awk -- '{print $5}' | head -n 1)
+    
+    cat > "$DANTE_CONFIG" <<EOL
+logoutput: /var/log/danted.log
+user.privileged: root
+user.notprivileged: nobody
+
+EOL
+
+    # Добавляем internal интерфейсы для каждого порта
+    if [ -f "$PROFILES_FILE" ] && [ "$(jq length "$PROFILES_FILE")" -gt 0 ]; then
+        while IFS= read -r profile; do
+            local port=$(echo "$profile" | jq -r '.port')
+            echo "internal: 0.0.0.0 port = $port" >> "$DANTE_CONFIG"
+        done < <(jq -c '.[]' "$PROFILES_FILE")
+    fi
+    
+    cat >> "$DANTE_CONFIG" <<EOL
+
+external: $INTERFACE
+socksmethod: username
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    method: username
+    protocol: tcp udp
+    log: error
+}
+EOL
+}
+
+# Создание нового профиля (ОСНОВАН НА ИСХОДНОМ СКРИПТЕ)
 create_profile() {
     print_header "СОЗДАНИЕ НОВОГО SOCKS5 ПРОФИЛЯ"
     
@@ -133,11 +166,11 @@ create_profile() {
         return 1
     fi
     
-    # Определяем сетевой интерфейс
+    # Определяем сетевой интерфейс (ИЗ ИСХОДНОГО СКРИПТА)
     INTERFACE=$(ip route get 8.8.8.8 | awk -- '{print $5}' | head -n 1)
     print_status "Обнаружен сетевой интерфейс: $INTERFACE"
     
-    # Настройка аутентификации
+    # Настройка аутентификации (ИЗ ИСХОДНОГО СКРИПТА)
     echo ""
     print_header "НАСТРОЙКА АУТЕНТИФИКАЦИИ"
     read -p "Ввести логин и пароль вручную? [y/N]: " choice
@@ -154,7 +187,7 @@ create_profile() {
         echo "  Пароль: $password"
     fi
     
-    # Настройка порта
+    # Настройка порта (ИЗ ИСХОДНОГО СКРИПТА)
     echo ""
     print_header "НАСТРОЙКА ПОРТА"
     read -p "Указать порт вручную? [y/N]: " port_choice
@@ -173,96 +206,34 @@ create_profile() {
         print_status "Назначен порт: $port"
     fi
     
-    # Создание системного пользователя
+    # Создание системного пользователя (ИЗ ИСХОДНОГО СКРИПТА)
     print_status "Создание системного пользователя..."
-    local system_user="${profile_name//-/_}_user"
-    useradd -r -s /bin/false "$system_user" 2>/dev/null
-    (echo "$password"; echo "$password") | passwd "$system_user" > /dev/null 2>&1
+    useradd -r -s /bin/false "$username" 2>/dev/null
+    (echo "$password"; echo "$password") | passwd "$username" > /dev/null 2>&1
     
-    # Создание директории для PID файлов
-    mkdir -p "/var/run/dante"
-    chown root:root "/var/run/dante"
-    chmod 755 "/var/run/dante"
+    # Сохранение профиля
+    save_profile "$profile_name" "$port" "$username" "$password"
     
-    # Создание конфигурации Dante (ИСПРАВЛЕННАЯ)
-    print_status "Создание конфигурации Dante..."
-    local config_file="$MANAGER_DIR/${profile_name}.conf"
+    # Обновление конфигурации Dante
+    print_status "Обновление конфигурации Dante..."
+    generate_dante_config
     
-    cat > "$config_file" <<EOL
-logoutput: /var/log/dante-${profile_name}.log
-internal: 0.0.0.0 port = $port
-external: $INTERFACE
-socksmethod: username
-user.privileged: root
-user.notprivileged: nobody
-
-client pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    log: error
-}
-
-socks pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    method: username
-    protocol: tcp udp
-    log: error
-}
-EOL
-    
-    # Создание systemd сервиса (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-    print_status "Создание systemd сервиса..."
-    local service_name="dante-${profile_name}"
-
-    cat > "/etc/systemd/system/${service_name}.service" <<EOL
-[Unit]
-Description=Dante SOCKS5 Proxy Server - $profile_name
-Documentation=man:danted(8) man:danted.conf(5)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/sbin/danted -f $config_file -D
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-RestartSec=5
-User=root
-Group=root
-RuntimeDirectory=dante-${profile_name}
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-EOL
-    
-    # Создание директории для логов
-    touch "/var/log/dante-${profile_name}.log"
-    chmod 644 "/var/log/dante-${profile_name}.log"
-    
-    # Настройка брандмауэра
+    # Настройка брандмауэра (ИЗ ИСХОДНОГО СКРИПТА)
     print_status "Настройка брандмауэра..."
     ufw allow "$port/tcp" > /dev/null 2>&1
     
-    # Запуск службы
-    print_status "Запуск службы..."
-    systemctl daemon-reload
-    systemctl restart "$service_name"
-    systemctl enable "$service_name" > /dev/null 2>&1
+    # Перезапуск службы (ИЗ ИСХОДНОГО СКРИПТА)
+    print_status "Перезапуск службы..."
+    systemctl restart danted
+    systemctl enable danted > /dev/null 2>&1
     
-    # Проверка статуса с задержкой
-    sleep 2
-    if ! systemctl is-active --quiet "$service_name"; then
-        print_error "Не удалось запустить службу $service_name"
-        print_status "Проверка логов..."
-        journalctl -u "$service_name" --no-pager -n 10
+    if ! systemctl is-active --quiet danted; then
+        print_error "Не удалось запустить службу Dante"
         return 1
     fi
     
-    # Получение внешнего IP
+    # Получение внешнего IP (ИЗ ИСХОДНОГО СКРИПТА)
     local external_ip=$(curl -4 -s ifconfig.me)
-    
-    # Сохранение профиля в JSON
-    save_profile "$profile_name" "$external_ip" "$port" "$username" "$password" "$service_name" "$system_user"
     
     # Вывод результатов
     echo ""
@@ -285,30 +256,21 @@ EOL
 # Сохранение профиля в JSON
 save_profile() {
     local name=$1
-    local ip=$2
-    local port=$3
-    local username=$4
-    local password=$5
-    local service_name=$6
-    local system_user=$7
+    local port=$2
+    local username=$3
+    local password=$4
     
     local new_profile=$(jq -n \
         --arg name "$name" \
-        --arg ip "$ip" \
         --arg port "$port" \
         --arg username "$username" \
         --arg password "$password" \
-        --arg service "$service_name" \
-        --arg user "$system_user" \
         --arg created "$(date -Iseconds)" \
         '{
             name: $name,
-            ip: $ip,
             port: ($port | tonumber),
             username: $username,
             password: $password,
-            service: $service,
-            system_user: $user,
             created: $created
         }')
     
@@ -334,30 +296,29 @@ show_connections() {
         return
     fi
     
+    local external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || echo "N/A")
+    local service_status=""
+    if systemctl is-active --quiet danted; then
+        service_status="${GREEN}АКТИВЕН${NC}"
+    else
+        service_status="${RED}ОСТАНОВЛЕН${NC}"
+    fi
+    
     echo ""
     printf "%-15s %-15s %-8s %-12s %-15s %-10s\n" "НАЗВАНИЕ" "IP АДРЕС" "ПОРТ" "ЛОГИН" "ПАРОЛЬ" "СТАТУС"
     echo "────────────────────────────────────────────────────────────────────────────────"
     
     while IFS= read -r profile; do
         local name=$(echo "$profile" | jq -r '.name')
-        local ip=$(echo "$profile" | jq -r '.ip')
         local port=$(echo "$profile" | jq -r '.port')
         local username=$(echo "$profile" | jq -r '.username')
         local password=$(echo "$profile" | jq -r '.password')
-        local service=$(echo "$profile" | jq -r '.service')
         
-        local status=""
-        if systemctl is-active --quiet "$service"; then
-            status="${GREEN}АКТИВЕН${NC}"
-        else
-            status="${RED}ОСТАНОВЛЕН${NC}"
-        fi
-        
-        printf "%-15s %-15s %-8s %-12s %-15s %-20s\n" "$name" "$ip" "$port" "$username" "$password" "$status"
+        printf "%-15s %-15s %-8s %-12s %-15s %-20s\n" "$name" "$external_ip" "$port" "$username" "$password" "$service_status"
     done < <(jq -c '.[]' "$PROFILES_FILE")
     
     echo ""
-    echo -e "${CYAN}Для управления используйте команду: socks${NC}"
+    echo -e "${CYAN}Все профили используют одну службу dante${NC}"
 }
 
 # Удаление профиля
@@ -371,7 +332,7 @@ delete_profile() {
     
     echo ""
     echo "Доступные профили:"
-    jq -r '.[] | "  - \(.name)"' "$PROFILES_FILE"
+    jq -r '.[] | "  - \(.name) (порт: \(.port))"' "$PROFILES_FILE"
     echo ""
     
     read -p "Введите название профиля для удаления: " profile_name
@@ -388,8 +349,7 @@ delete_profile() {
     
     # Получение данных профиля
     local profile_data=$(jq ".[] | select(.name == \"$profile_name\")" "$PROFILES_FILE")
-    local service_name=$(echo "$profile_data" | jq -r '.service')
-    local system_user=$(echo "$profile_data" | jq -r '.system_user')
+    local username=$(echo "$profile_data" | jq -r '.username')
     local port=$(echo "$profile_data" | jq -r '.port')
     
     echo ""
@@ -400,27 +360,28 @@ delete_profile() {
         return
     fi
     
-    # Исправленная функция удаления профиля
     print_status "Удаление профиля '$profile_name'..."
     
-    # Остановка и удаление службы
-    systemctl stop "$service_name" 2>/dev/null
-    systemctl disable "$service_name" 2>/dev/null
-    rm -f "/etc/systemd/system/${service_name}.service"
-    systemctl daemon-reload
-    
     # Удаление системного пользователя
-    userdel "$system_user" 2>/dev/null
-    
-    # Удаление конфигурационного файла и логов
-    rm -f "$MANAGER_DIR/${profile_name}.conf"
-    rm -f "/var/log/dante-${profile_name}.log"
+    userdel "$username" 2>/dev/null
     
     # Удаление правила firewall
     ufw delete allow "$port/tcp" > /dev/null 2>&1
     
     # Удаление профиля из JSON
     jq "del(.[] | select(.name == \"$profile_name\"))" "$PROFILES_FILE" > "$PROFILES_FILE.tmp" && mv "$PROFILES_FILE.tmp" "$PROFILES_FILE"
+    
+    # Обновление конфигурации Dante
+    print_status "Обновление конфигурации Dante..."
+    generate_dante_config
+    
+    # Перезапуск службы
+    if [ "$(jq length "$PROFILES_FILE")" -gt 0 ]; then
+        systemctl restart danted
+    else
+        print_warning "Это был последний профиль. Остановка службы Dante."
+        systemctl stop danted
+    fi
     
     print_success "Профиль '$profile_name' успешно удален"
 }
@@ -441,31 +402,26 @@ uninstall_manager() {
     
     print_status "Удаление всех профилей и конфигураций..."
     
-    # Остановка и удаление всех служб
+    # Остановка службы
+    systemctl stop danted 2>/dev/null
+    systemctl disable danted 2>/dev/null
+    
+    # Удаление всех системных пользователей
     if [ -f "$PROFILES_FILE" ]; then
         while IFS= read -r profile; do
-            local service_name=$(echo "$profile" | jq -r '.service')
-            local system_user=$(echo "$profile" | jq -r '.system_user')
+            local username=$(echo "$profile" | jq -r '.username')
             local port=$(echo "$profile" | jq -r '.port')
-            
-            systemctl stop "$service_name" 2>/dev/null
-            systemctl disable "$service_name" 2>/dev/null
-            rm -f "/etc/systemd/system/${service_name}.service"
-            userdel "$system_user" 2>/dev/null
+            userdel "$username" 2>/dev/null
             ufw delete allow "$port/tcp" > /dev/null 2>&1
         done < <(jq -c '.[]' "$PROFILES_FILE")
     fi
     
-    systemctl daemon-reload
-    
-    # Удаление директории менеджера
+    # Удаление файлов
     rm -rf "$MANAGER_DIR"
-    
-    # Удаление симлинка
+    rm -f "$DANTE_CONFIG"
     rm -f "$SCRIPT_PATH"
     
     print_success "SOCKS5 менеджер полностью удален"
-    print_status "Для повторной установки запустите скрипт заново"
 }
 
 # Главное меню
@@ -532,6 +488,9 @@ main() {
         print_header "ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА SOCKS5 МЕНЕДЖЕРА"
         install_dependencies
         init_manager
+        
+        # Создаем пустую конфигурацию dante
+        generate_dante_config
         
         echo ""
         print_success "Менеджер SOCKS5 прокси успешно установлен!"
