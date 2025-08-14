@@ -41,6 +41,7 @@ print_success() {
 }
 
 # Инициализация менеджера
+# Инициализация менеджера (исправленная версия)
 init_manager() {
     if [ ! -d "$MANAGER_DIR" ]; then
         mkdir -p "$MANAGER_DIR"
@@ -48,11 +49,26 @@ init_manager() {
         print_status "Создана директория управления: $MANAGER_DIR"
     fi
     
+    # Удаляем старый symlink если он существует
+    if [ -L "$SCRIPT_PATH" ]; then
+        rm -f "$SCRIPT_PATH"
+    fi
+    
     # Создание symlink для быстрого доступа
-    if [ ! -f "$SCRIPT_PATH" ] || [ ! -L "$SCRIPT_PATH" ]; then
-        ln -sf "$(realpath "$0")" "$SCRIPT_PATH"
+    local script_location="$(realpath "$0")"
+    if [ -f "$script_location" ]; then
+        ln -sf "$script_location" "$SCRIPT_PATH"
         chmod +x "$SCRIPT_PATH"
         print_status "Создана команда быстрого доступа: socks"
+        
+        # Проверяем что symlink работает
+        if [ -x "$SCRIPT_PATH" ]; then
+            print_success "Команда 'socks' готова к использованию"
+        else
+            print_warning "Проблема с созданием команды 'socks'"
+        fi
+    else
+        print_warning "Не удалось создать команду быстрого доступа"
     fi
 }
 
@@ -288,6 +304,7 @@ profile_exists() {
 }
 
 # Показать все подключения
+# Показать все подключения (улучшенная версия)
 show_connections() {
     print_header "АКТИВНЫЕ SOCKS5 ПОДКЛЮЧЕНИЯ"
     
@@ -305,20 +322,64 @@ show_connections() {
     fi
     
     echo ""
-    printf "%-15s %-15s %-8s %-12s %-15s %-10s\n" "НАЗВАНИЕ" "IP АДРЕС" "ПОРТ" "ЛОГИН" "ПАРОЛЬ" "СТАТУС"
-    echo "────────────────────────────────────────────────────────────────────────────────"
+    echo -e "${CYAN}Список профилей:${NC}"
+    echo ""
+    
+    local counter=1
+    declare -a profile_names=()
     
     while IFS= read -r profile; do
         local name=$(echo "$profile" | jq -r '.name')
         local port=$(echo "$profile" | jq -r '.port')
-        local username=$(echo "$profile" | jq -r '.username')
-        local password=$(echo "$profile" | jq -r '.password')
-        
-        printf "%-15s %-15s %-8s %-12s %-15s %-20s\n" "$name" "$external_ip" "$port" "$username" "$password" "$service_status"
+        profile_names+=("$name")
+        echo -e "${CYAN}$counter.${NC} $name (порт: $port)"
+        ((counter++))
     done < <(jq -c '.[]' "$PROFILES_FILE")
     
     echo ""
-    echo -e "${CYAN}Все профили используют одну службу dante${NC}"
+    echo -e "${CYAN}0.${NC} Назад в главное меню"
+    echo ""
+    read -p "Выберите профиль для просмотра (0-$((counter-1))): " selection
+    
+    if [[ "$selection" == "0" ]]; then
+        return
+    fi
+    
+    if ! [[ "$selection" =~ ^[1-9][0-9]*$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -ge $counter ]; then
+        print_error "Неверный выбор"
+        sleep 1
+        return
+    fi
+    
+    local selected_profile=$(echo "${profile_names[$((selection-1))]}")
+    local profile_data=$(jq ".[] | select(.name == \"$selected_profile\")" "$PROFILES_FILE")
+    
+    local name=$(echo "$profile_data" | jq -r '.name')
+    local port=$(echo "$profile_data" | jq -r '.port')
+    local username=$(echo "$profile_data" | jq -r '.username')
+    local password=$(echo "$profile_data" | jq -r '.password')
+    local created=$(echo "$profile_data" | jq -r '.created')
+    
+    clear
+    print_header "ИНФОРМАЦИЯ О ПРОФИЛЕ: $name"
+    echo ""
+    echo -e "${BLUE}Параметры подключения:${NC}"
+    echo "  Название: $name"
+    echo "  IP адрес: $external_ip"
+    echo "  Порт: $port"
+    echo "  Логин: $username"
+    echo "  Пароль: $password"
+    echo "  Статус: $service_status"
+    echo "  Создан: $created"
+    echo ""
+    echo -e "${BLUE}Форматы для антидетект браузеров:${NC}"
+    echo "  $external_ip:$port:$username:$password"
+    echo "  $username:$password@$external_ip:$port"
+    echo ""
+    
+    read -p "Нажмите Enter для возврата к списку..."
+    clear
+    show_connections  # Рекурсивный вызов для возврата к списку
 }
 
 # Удаление профиля
@@ -476,6 +537,7 @@ show_main_menu() {
 }
 
 # Основная логика
+# Основная логика
 main() {
     # Проверка прав администратора
     if [[ $EUID -ne 0 ]]; then
@@ -502,9 +564,34 @@ main() {
             clear
             create_profile
             echo ""
-            read -p "Нажмите Enter для входа в главное меню..."
+            read -p "Нажмите Enter для продолжения..."
         fi
+        
+        # Проверка установки
+        echo ""
+        print_header "ПРОВЕРКА УСТАНОВКИ"
+        
+        # Проверяем работу команды socks
+        if [ -x "$SCRIPT_PATH" ]; then
+            print_success "Команда 'socks' установлена и готова к использованию"
+            echo ""
+            echo -e "${CYAN}Доступные команды:${NC}"
+            echo "  socks         - главное меню"
+            echo "  socks list    - показать подключения"
+            echo "  socks create  - создать профиль"
+            echo "  socks delete  - удалить профиль"
+        else
+            print_warning "Проблема с командой 'socks'. Используйте полный путь к скрипту."
+            echo ""
+            echo -e "${CYAN}Альтернативный запуск:${NC}"
+            echo "  $(realpath "$0")  - запуск через полный путь"
+        fi
+        
+        echo ""
+        read -p "Нажмите Enter для входа в главное меню..."
+        
     else
+        # При повторных запусках - просто инициализируем менеджер
         init_manager
     fi
     
