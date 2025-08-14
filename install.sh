@@ -40,7 +40,6 @@ print_success() {
     echo -e "${GREEN}✓${NC} $1"
 }
 
-# Инициализация менеджера
 # Инициализация менеджера (исправленная версия)
 init_manager() {
     if [ ! -d "$MANAGER_DIR" ]; then
@@ -48,22 +47,43 @@ init_manager() {
         echo "[]" > "$PROFILES_FILE"
         print_status "Создана директория управления: $MANAGER_DIR"
     fi
-    
+
+    # Всегда обеспечиваем правильную работу команды socks
+    setup_socks_command
+}
+
+# Новая функция для настройки команды socks
+setup_socks_command() {
     # Удаляем старый symlink если он существует
-    if [ -L "$SCRIPT_PATH" ]; then
+    if [ -L "$SCRIPT_PATH" ] || [ -f "$SCRIPT_PATH" ]; then
         rm -f "$SCRIPT_PATH"
     fi
-    
-    # Создание symlink для быстрого доступа
-    local script_location="$(realpath "$0")"
+
+    # Определяем путь к скрипту более надежно
+    local script_location
+    if [ -n "$BASH_SOURCE" ]; then
+        script_location="$(readlink -f "$BASH_SOURCE")"
+    else
+        script_location="$(readlink -f "$0")"
+    fi
+
+    # Если скрипт был скачан временно, копируем его в постоянное место
+    if [[ "$script_location" == */tmp/* ]] || [[ "$script_location" == *install.sh ]]; then
+        local permanent_location="/usr/local/bin/socks5-manager.sh"
+        cp "$script_location" "$permanent_location"
+        chmod +x "$permanent_location"
+        script_location="$permanent_location"
+        print_status "Скрипт скопирован в: $permanent_location"
+    fi
+
+    # Создаем symlink
     if [ -f "$script_location" ]; then
         ln -sf "$script_location" "$SCRIPT_PATH"
         chmod +x "$SCRIPT_PATH"
-        print_status "Создана команда быстрого доступа: socks"
         
         # Проверяем что symlink работает
         if [ -x "$SCRIPT_PATH" ]; then
-            print_success "Команда 'socks' готова к использованию"
+            print_success "Команда 'socks' создана и готова к использованию"
         else
             print_warning "Проблема с созданием команды 'socks'"
         fi
@@ -537,14 +557,13 @@ show_main_menu() {
 }
 
 # Основная логика
-# Основная логика
 main() {
     # Проверка прав администратора
     if [[ $EUID -ne 0 ]]; then
         print_error "Этот скрипт должен быть запущен с правами root"
         exit 1
     fi
-    
+
     # Инициализация при первом запуске
     if [ ! -d "$MANAGER_DIR" ]; then
         print_header "ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА SOCKS5 МЕНЕДЖЕРА"
@@ -556,45 +575,20 @@ main() {
         
         echo ""
         print_success "Менеджер SOCKS5 прокси успешно установлен!"
-        print_status "Теперь вы можете использовать команду 'socks' для быстрого доступа"
         echo ""
-        read -p "Создать первый профиль сейчас? [Y/n]: " create_first
         
+        read -p "Создать первый профиль сейчас? [Y/n]: " create_first
         if [[ ! "$create_first" =~ ^[Nn]$ ]]; then
             clear
             create_profile
             echo ""
             read -p "Нажмите Enter для продолжения..."
         fi
-        
-        # Проверка установки
-        echo ""
-        print_header "ПРОВЕРКА УСТАНОВКИ"
-        
-        # Проверяем работу команды socks
-        if [ -x "$SCRIPT_PATH" ]; then
-            print_success "Команда 'socks' установлена и готова к использованию"
-            echo ""
-            echo -e "${CYAN}Доступные команды:${NC}"
-            echo "  socks         - главное меню"
-            echo "  socks list    - показать подключения"
-            echo "  socks create  - создать профиль"
-            echo "  socks delete  - удалить профиль"
-        else
-            print_warning "Проблема с командой 'socks'. Используйте полный путь к скрипту."
-            echo ""
-            echo -e "${CYAN}Альтернативный запуск:${NC}"
-            echo "  $(realpath "$0")  - запуск через полный путь"
-        fi
-        
-        echo ""
-        read -p "Нажмите Enter для входа в главное меню..."
-        
     else
-        # При повторных запусках - просто инициализируем менеджер
-        init_manager
+        # При повторных запусках - проверяем и обновляем команду socks
+        setup_socks_command
     fi
-    
+
     # Показ главного меню
     show_main_menu
 }
