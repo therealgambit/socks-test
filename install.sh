@@ -113,7 +113,7 @@ get_next_profile_number() {
     echo $((max_num + 1))
 }
 
-# Создание нового профиля
+# Создание нового профиля (исправленная версия)
 create_profile() {
     print_header "СОЗДАНИЕ НОВОГО SOCKS5 ПРОФИЛЯ"
     
@@ -179,12 +179,17 @@ create_profile() {
     useradd -r -s /bin/false "$system_user" 2>/dev/null
     (echo "$password"; echo "$password") | passwd "$system_user" > /dev/null 2>&1
     
-    # Создание конфигурации Dante
+    # Создание директории для PID файлов
+    mkdir -p "/var/run/dante"
+    chown root:root "/var/run/dante"
+    chmod 755 "/var/run/dante"
+    
+    # Создание конфигурации Dante (ИСПРАВЛЕННАЯ)
     print_status "Создание конфигурации Dante..."
     local config_file="$MANAGER_DIR/${profile_name}.conf"
     
     cat > "$config_file" <<EOL
-logoutput: stderr
+logoutput: /var/log/dante-${profile_name}.log
 internal: 0.0.0.0 port = $port
 external: $INTERFACE
 socksmethod: username
@@ -192,32 +197,35 @@ user.privileged: root
 user.notprivileged: nobody
 
 client pass {
-        from: 0.0.0.0/0 to: 0.0.0.0/0
-        log: error
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
 }
 
 socks pass {
-        from: 0.0.0.0/0 to: 0.0.0.0/0
-        method: username
-        protocol: tcp udp
-        log: error
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    method: username
+    protocol: tcp udp
+    log: error
 }
 EOL
     
-    # Создание systemd сервиса
+    # Создание systemd сервиса (ИСПРАВЛЕННАЯ ВЕРСИЯ)
     print_status "Создание systemd сервиса..."
     local service_name="dante-${profile_name}"
     
     cat > "/etc/systemd/system/${service_name}.service" <<EOL
 [Unit]
 Description=Dante SOCKS5 Proxy Server - $profile_name
-After=network.target
+Documentation=man:sockd(8) man:sockd.conf(5)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=forking
-ExecStart=/usr/sbin/danted -f $config_file
+Type=simple
+ExecStart=/usr/sbin/sockd -f $config_file -D
 ExecReload=/bin/kill -HUP \$MAINPID
-PIDFile=/var/run/danted-${profile_name}.pid
+Restart=on-failure
+RestartSec=5
 User=root
 Group=root
 
@@ -225,8 +233,9 @@ Group=root
 WantedBy=multi-user.target
 EOL
     
-    # Обновление конфигурации Dante для использования PID файла
-    echo "pidfile: /var/run/danted-${profile_name}.pid" >> "$config_file"
+    # Создание директории для логов
+    touch "/var/log/dante-${profile_name}.log"
+    chmod 644 "/var/log/dante-${profile_name}.log"
     
     # Настройка брандмауэра
     print_status "Настройка брандмауэра..."
@@ -238,8 +247,12 @@ EOL
     systemctl restart "$service_name"
     systemctl enable "$service_name" > /dev/null 2>&1
     
+    # Проверка статуса с задержкой
+    sleep 2
     if ! systemctl is-active --quiet "$service_name"; then
         print_error "Не удалось запустить службу $service_name"
+        print_status "Проверка логов..."
+        journalctl -u "$service_name" --no-pager -n 10
         return 1
     fi
     
@@ -385,6 +398,7 @@ delete_profile() {
         return
     fi
     
+    # Исправленная функция удаления профиля
     print_status "Удаление профиля '$profile_name'..."
     
     # Остановка и удаление службы
@@ -396,8 +410,9 @@ delete_profile() {
     # Удаление системного пользователя
     userdel "$system_user" 2>/dev/null
     
-    # Удаление конфигурационного файла
+    # Удаление конфигурационного файла и логов
     rm -f "$MANAGER_DIR/${profile_name}.conf"
+    rm -f "/var/log/dante-${profile_name}.log"
     
     # Удаление правила firewall
     ufw delete allow "$port/tcp" > /dev/null 2>&1
