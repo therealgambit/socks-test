@@ -326,9 +326,9 @@ show_connections() {
     local external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || echo "N/A")
     local service_status=""
     if systemctl is-active --quiet danted; then
-        service_status="\033[0;32mАКТИВЕН\033[0m"
+        service_status="${GREEN}АКТИВЕН${NC}"
     else
-        service_status="\033[0;31mОСТАНОВЛЕН\033[0m"
+        service_status="${RED}ОСТАНОВЛЕН${NC}"
     fi
 
     echo ""
@@ -379,7 +379,7 @@ show_connections() {
     echo "  Порт: $port"
     echo "  Логин: $username"
     echo "  Пароль: $password"
-    echo "  Статус: $service_status"
+    echo -e "  Статус: $service_status"
     echo "  Создан: $created"
     echo ""
     echo -e "${BLUE}Форматы для антидетект браузеров:${NC}"
