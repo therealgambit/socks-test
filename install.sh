@@ -7,7 +7,7 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;35m'
+BLUE="$CYAN"
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
@@ -31,9 +31,7 @@ print_error() {
 }
 
 print_header() {
-    echo -e "${BLUE}================================${NC}"
     echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}================================${NC}"
 }
 
 print_success() {
@@ -331,11 +329,11 @@ show_connections() {
     local external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || echo "N/A")
     local service_status=""
     if systemctl is-active --quiet danted; then
-        service_status="${GREEN}АКТИВЕН${NC}"
+        service_status="\033[0;32mАКТИВЕН\033[0m"
     else
-        service_status="${RED}ОСТАНОВЛЕН${NC}"
+        service_status="\033[0;31mОСТАНОВЛЕН\033[0m"
     fi
-    
+
     echo ""
     echo -e "${CYAN}Список профилей:${NC}"
     echo ""
@@ -504,16 +502,18 @@ uninstall_manager() {
 show_main_menu() {
     while true; do
         clear
-        print_header "SOCKS5 PROXY MANAGER"
+        print_header "SOCKS5 PROXY MANAGER by distillium"
         echo ""
         echo -e "${CYAN}1.${NC} Показать все подключения"
         echo -e "${CYAN}2.${NC} Создать новое подключение"
+        echo ""
         echo -e "${CYAN}3.${NC} Удалить подключение"
         echo -e "${CYAN}4.${NC} Удалить менеджер и все конфигурации"
-        echo -e "${CYAN}5.${NC} Выход"
         echo ""
-        read -p "Выберите пункт меню (1-5): " choice
-        
+        echo -e "${CYAN}0.${NC} Выход"
+        echo ""
+        read -p "Выберите пункт меню (0-4): " choice
+        echo -e "–  Быстрый запуск: ${CYAN}socks${NC} доступен из любой точки системы"
         case $choice in
             1)
                 clear
@@ -538,7 +538,7 @@ show_main_menu() {
                 uninstall_manager
                 exit 0
                 ;;
-            5)
+            0)
                 echo ""
                 print_status "До свидания!"
                 exit 0
