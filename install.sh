@@ -85,7 +85,7 @@ setup_socks_command() {
 # Проверка и установка зависимостей (ТОЧНО КАК В ИСХОДНОМ СКРИПТЕ)
 install_dependencies() {
     print_status "Обновление пакетов и установка зависимостей..."
-    apt update > /dev/null 2>&1 && apt install -y dante-server apache2-utils jq > /dev/null 2>&1
+    apt update > /dev/null 2>&1 && apt install -y dante-server jq > /dev/null 2>&1
     
     if [ $? -ne 0 ]; then
         print_error "Ошибка при установке пакетов"
@@ -491,6 +491,8 @@ uninstall_manager() {
     rm -rf "$MANAGER_DIR"
     rm -f "$DANTE_CONFIG"
     rm -f "$SCRIPT_PATH"
+    rm -f /usr/local/bin/socks5-manager.sh
+    DEBIAN_FRONTEND=noninteractive apt --purge remove -y dante-server > /dev/null 2>&1
     
     print_success "SOCKS5 менеджер полностью удален"
 }
@@ -565,7 +567,7 @@ main() {
 
         # Создаем команду socks сразу при установке
         setup_socks_command
-
+        rm -f /root/install.sh
         echo ""
         print_success "Менеджер SOCKS5 прокси успешно установлен!"
         echo ""
