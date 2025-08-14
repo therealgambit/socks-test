@@ -212,22 +212,24 @@ EOL
     # Создание systemd сервиса (ИСПРАВЛЕННАЯ ВЕРСИЯ)
     print_status "Создание systemd сервиса..."
     local service_name="dante-${profile_name}"
-    
+
     cat > "/etc/systemd/system/${service_name}.service" <<EOL
 [Unit]
 Description=Dante SOCKS5 Proxy Server - $profile_name
-Documentation=man:sockd(8) man:sockd.conf(5)
+Documentation=man:danted(8) man:danted.conf(5)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/sockd -f $config_file -D
+ExecStart=/usr/sbin/danted -f $config_file -D
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5
 User=root
 Group=root
+RuntimeDirectory=dante-${profile_name}
+RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target
