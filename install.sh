@@ -35,7 +35,7 @@ print_header() {
 }
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
 # Инициализация менеджера (исправленная версия)
