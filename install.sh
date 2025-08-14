@@ -54,41 +54,36 @@ init_manager() {
 
 # Новая функция для настройки команды socks
 setup_socks_command() {
-    # Удаляем старый symlink если он существует
-    if [ -L "$SCRIPT_PATH" ] || [ -f "$SCRIPT_PATH" ]; then
-        rm -f "$SCRIPT_PATH"
-    fi
+    local target="/usr/local/bin/socks5-manager.sh"
+    local link_path="/usr/local/bin/socks"
 
-    # Определяем путь к скрипту более надежно
-    local script_location
-    if [ -n "$BASH_SOURCE" ]; then
-        script_location="$(readlink -f "$BASH_SOURCE")"
+    # Определяем путь к текущему исполняемому скрипту
+    local source_script
+    if [ -n "${BASH_SOURCE[0]}" ]; then
+        source_script="$(readlink -f "${BASH_SOURCE[0]}")"
     else
-        script_location="$(readlink -f "$0")"
+        source_script="$(readlink -f "$0")"
     fi
 
-    # Если скрипт был скачан временно, копируем его в постоянное место
-    if [[ "$script_location" == */tmp/* ]] || [[ "$script_location" == *install.sh ]]; then
-        local permanent_location="/usr/local/bin/socks5-manager.sh"
-        cp "$script_location" "$permanent_location"
-        chmod +x "$permanent_location"
-        script_location="$permanent_location"
-        print_status "Скрипт скопирован в: $permanent_location"
+    # Если основной файл ещё не скопирован в постоянное место — копируем
+    if [ ! -f "$target" ]; then
+        cp "$source_script" "$target"
+        chmod +x "$target"
+        print_status "Скрипт скопирован в постоянное место: $target"
     fi
 
-    # Создаем symlink
-    if [ -f "$script_location" ]; then
-        ln -sf "$script_location" "$SCRIPT_PATH"
-        chmod +x "$SCRIPT_PATH"
-        
-        # Проверяем что symlink работает
-        if [ -x "$SCRIPT_PATH" ]; then
-            print_success "Команда 'socks' создана и готова к использованию"
-        else
-            print_warning "Проблема с созданием команды 'socks'"
-        fi
+    # Создаём или обновляем symlink
+    if [ -L "$link_path" ] || [ -f "$link_path" ]; then
+        rm -f "$link_path"
+    fi
+    ln -s "$target" "$link_path"
+    chmod +x "$link_path"
+
+    # Проверка результата
+    if [ -x "$link_path" ]; then
+        print_success "Команда 'socks' создана и готова к использованию"
     else
-        print_warning "Не удалось создать команду быстрого доступа"
+        print_warning "Не удалось создать команду 'socks'"
     fi
 }
 
@@ -567,16 +562,18 @@ main() {
     # Инициализация при первом запуске
     if [ ! -d "$MANAGER_DIR" ]; then
         print_header "ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА SOCKS5 МЕНЕДЖЕРА"
+
         install_dependencies
         init_manager
-        
-        # Создаем пустую конфигурацию dante
         generate_dante_config
-        
+
+        # Создаем команду socks сразу при установке
+        setup_socks_command
+
         echo ""
         print_success "Менеджер SOCKS5 прокси успешно установлен!"
         echo ""
-        
+
         read -p "Создать первый профиль сейчас? [Y/n]: " create_first
         if [[ ! "$create_first" =~ ^[Nn]$ ]]; then
             clear
@@ -585,7 +582,7 @@ main() {
             read -p "Нажмите Enter для продолжения..."
         fi
     else
-        # При повторных запусках - проверяем и обновляем команду socks
+        # При повторных запусках всегда проверяем/восстанавливаем команду socks
         setup_socks_command
     fi
 
