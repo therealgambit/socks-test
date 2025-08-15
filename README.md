@@ -28,7 +28,7 @@ wget -q -O install.sh https://raw.githubusercontent.com/distillium/socks5-proxy-
 
 ## Шаблоны профилей:
 Стандартное отображение:
-```json
+```
 IP: xxx.xxx.xxx.xxx
 Порт: 12345
 Логин: username
@@ -36,15 +36,15 @@ IP: xxx.xxx.xxx.xxx
 ```
 
 Готовый вывод для антидетект-браузеров:
-```json
+```
 xxx.xxx.xxx.xxx:12345:username:password
 username:password@xxx.xxx.xxx.xxx:12345
 ```
 
 ## Команды:
-`socks menu` - открыть главное меню
-`socks list` - список подключений
-`socks create` - создать новое подключение
+`socks menu` - открыть главное меню 
+`socks list` - список подключений 
+`socks create` - создать новое подключение 
 `socks delete` - удалить подключение
 
 ## Автор:
